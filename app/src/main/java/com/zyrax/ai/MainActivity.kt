@@ -182,15 +182,27 @@ fun HomeScreen(
     onOpenAgents: () -> Unit,
     onOpenModules: () -> Unit
 ) {
+    val context = LocalContext.current
+    val activeAgent = AgentStore.getActive(context)
+
     val transition = rememberInfiniteTransition(label = "zyrax_core")
     val pulse by transition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
+        initialValue = 0.94f,
+        targetValue = 1.06f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1300),
+            animation = tween(1600),
             repeatMode = RepeatMode.Reverse
         ),
         label = "core_pulse"
+    )
+    val rotation by transition.animateFloat(
+        initialValue = -8f,
+        targetValue = 8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3200),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "core_rotation"
     )
 
     Column(
@@ -198,53 +210,90 @@ fun HomeScreen(
             .fillMaxSize()
             .background(Bg)
             .verticalScroll(rememberScrollState())
-            .padding(18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            "ZYRAX AI",
-            style = MaterialTheme.typography.headlineLarge,
-            color = Color.White
-        )
-        Text("PERSONAL AI ECOSYSTEM", color = Purple)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    "ZYRAX AI",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                Text("PERSONAL AI CONTROL CENTER", color = Cyan)
+            }
+            Text(
+                if (voiceOn) "● ONLINE" else "● STANDBY",
+                color = if (voiceOn) Cyan else Color.LightGray
+            )
+        }
 
-        Spacer(Modifier.height(24.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF211632)
+            ),
+            shape = RoundedCornerShape(22.dp)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("ACTIVE AI ASSISTANT", color = Purple)
+                Text(
+                    activeAgent.name,
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Text(activeAgent.personality, color = Color.LightGray)
+            }
+        }
 
         Box(
             modifier = Modifier
-                .size(174.dp)
-                .graphicsLayer {
-                    scaleX = pulse
-                    scaleY = pulse
-                }
-                .background(Color(0xFF211638), CircleShape)
-                .border(2.dp, Purple, CircleShape),
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(118.dp)
-                    .background(Color(0xFF38205A), CircleShape)
-                    .border(2.dp, Cyan, CircleShape),
+                    .size(218.dp)
+                    .graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                        rotationZ = rotation
+                    }
+                    .border(1.dp, Color(0xFF7143A8), CircleShape)
+                    .padding(12.dp)
+                    .border(2.dp, Cyan.copy(alpha = 0.65f), CircleShape)
+                    .padding(13.dp)
+                    .background(Color(0xFF211638), CircleShape)
+                    .border(2.dp, Purple, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    "Z",
-                    color = Color.White,
-                    style = MaterialTheme.typography.displayLarge
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Z",
+                        color = Color.White,
+                        style = MaterialTheme.typography.displayLarge
+                    )
+                    Text("AI CORE", color = Cyan)
+                }
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-
-        Text(
-            if (voiceOn) "VOICE SYSTEM ACTIVE" else "ZYRAX CORE STANDBY",
-            color = if (voiceOn) Cyan else Color.LightGray,
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Spacer(Modifier.height(14.dp))
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                if (voiceOn) "VOICE SYSTEM ACTIVE" else "CORE STANDBY",
+                color = if (voiceOn) Cyan else Color.LightGray,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text("Your personal assistant", color = Color.Gray)
+        }
 
         Button(
             onClick = onToggleVoice,
@@ -252,56 +301,74 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .height(58.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (voiceOn)
-                    Color(0xFF9E3347) else Purple
+                containerColor = if (voiceOn) Color(0xFF9E3347) else Purple
             ),
             shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                if (voiceOn) "VOICE OFF  ■" else "VOICE ON  ▶",
+                if (voiceOn) "TURN VOICE OFF  ■" else "ACTIVATE VOICE  ▶",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium
             )
         }
 
-        Spacer(Modifier.height(22.dp))
+        Text(
+            "SYSTEM OVERVIEW",
+            color = Cyan,
+            style = MaterialTheme.typography.titleMedium
+        )
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Panel),
-            shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(Modifier.padding(18.dp)) {
-                Text("SYSTEM DASHBOARD", color = Purple)
-                Spacer(Modifier.height(8.dp))
-                Text("ZYRAX Core", color = Color.White,
-                    style = MaterialTheme.typography.titleLarge)
-                Text(
-                    if (voiceOn) "Voice service requested"
-                    else "Voice service is stopped",
-                    color = Color.LightGray
-                )
-                Text("AI connection: Not configured",
-                    color = Color(0xFFFFC46B))
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("AI ENGINE", color = Color.Gray)
+                    Text(
+                        if (GeminiClient.hasApiKey(context)) "CONFIGURED"
+                        else "SETUP NEEDED",
+                        color = if (GeminiClient.hasApiKey(context)) Cyan
+                        else Color(0xFFFFC46B)
+                    )
+                }
+            }
+
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("VOICE", color = Color.Gray)
+                    Text(
+                        if (voiceOn) "RUNNING" else "STOPPED",
+                        color = if (voiceOn) Cyan else Color.LightGray
+                    )
+                }
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-        Text("QUICK ACCESS", color = Color.White)
-
-        ActionCard("Open AI Chat", "Start a conversation", onOpenChat)
-        ActionCard("Manage AI Agents", "ZYRAX and JARVIS", onOpenAgents)
-        ActionCard("Explore Modules", "System components", onOpenModules)
-
-        Spacer(Modifier.height(12.dp))
         Text(
-            "Voice recognition is an initial version. Full AI replies and reliable wake-word detection are not connected yet.",
-            color = Color.LightGray,
-            style = MaterialTheme.typography.bodySmall
+            "QUICK ACCESS",
+            color = Cyan,
+            style = MaterialTheme.typography.titleMedium
+        )
+        ActionCard("✦  AI Chat", "Talk with your active assistant", onOpenChat)
+        ActionCard("◉  AI Agents", "Choose or create an assistant", onOpenAgents)
+        ActionCard("▦  System Modules", "Explore assistant capabilities", onOpenModules)
+
+        Text(
+            "ZYRAX AI  •  PERSONAL INTELLIGENCE SYSTEM",
+            color = Color.Gray,
+            style = MaterialTheme.typography.labelSmall
         )
     }
 }
-
 @Composable
 fun ActionCard(title: String, description: String, action: () -> Unit) {
     Card(
