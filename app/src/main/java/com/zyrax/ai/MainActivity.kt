@@ -34,6 +34,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.zyrax.ai.voice.VoiceAssistantService
 
+import com.zyrax.ai.ai.GeminiClient
+
+import kotlinx.coroutines.launch
+
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+
+import androidx.compose.ui.text.input.VisualTransformation
+
 private val Bg = Color(0xFF0B0B16)
 private val Panel = Color(0xFF19192B)
 private val Purple = Color(0xFFB66CFF)
@@ -311,8 +319,13 @@ fun ActionCard(title: String, description: String, action: () -> Unit) {
 
 @Composable
 fun ChatScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val messages = remember { mutableStateListOf<String>() }
+    val history = remember { mutableStateListOf<Pair<String, String>>() }
     var input by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -322,8 +335,12 @@ fun ChatScreen() {
     ) {
         Text("AI CHAT", color = Purple,
             style = MaterialTheme.typography.headlineMedium)
-        Text("AI provider connection is not configured.",
-            color = Color.LightGray)
+        Text(
+            if (GeminiClient.hasApiKey(context))
+                "Gemini AI connected configuration found"
+            else "Settings থেকে Gemini API Key যোগ করুন",
+            color = Color.LightGray
+        )
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -332,10 +349,23 @@ fun ChatScreen() {
         ) {
             items(messages) { message ->
                 Card(colors = CardDefaults.cardColors(containerColor = Panel)) {
-                    Text(message, color = Color.White,
-                        modifier = Modifier.padding(14.dp))
+                    Text(
+                        message,
+                        color = Color.White,
+                        modifier = Modifier.padding(14.dp)
+                    )
                 }
             }
+            if (loading) {
+                item {
+                    Text("ZYRAX ভাবছে...", color = Cyan)
+                }
+            }
+        }
+
+        if (error.isNotBlank()) {
+            Text(error, color = Color(0xFFFF7777))
+            Spacer(Modifier.height(6.dp))
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -343,17 +373,41 @@ fun ChatScreen() {
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Write a message...") },
+                placeholder = { Text("আপনার মেসেজ লিখুন...") },
                 singleLine = true
             )
             Spacer(Modifier.width(8.dp))
-            Button(onClick = {
-                if (input.isNotBlank()) {
-                    messages.add("You: $input")
-                    input = ""
+            Button(
+                enabled = !loading && input.isNotBlank(),
+                onClick = {
+                    val prompt = input.trim()
+                    if (prompt.isNotEmpty() && !loading) {
+                        input = ""
+                        error = ""
+                        messages.add("আপনি: $prompt")
+                        loading = true
+
+                        scope.launch {
+                            try {
+                                val reply = GeminiClient.generateReply(
+                                    context,
+                                    prompt,
+                                    history.toList()
+                                )
+                                history.add("user" to prompt)
+                                history.add("model" to reply)
+                                messages.add("ZYRAX: $reply")
+                            } catch (e: Exception) {
+                                error = e.message ?: "Gemini সংযোগে সমস্যা হয়েছে।"
+                                messages.add("সমস্যা: $error")
+                            } finally {
+                                loading = false
+                            }
+                        }
+                    }
                 }
-            }) {
-                Text("Send")
+            ) {
+                Text(if (loading) "..." else "Send")
             }
         }
     }
@@ -432,7 +486,16 @@ fun ModulesScreen() {
 
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var language by remember { mutableStateOf("বাংলা") }
+    var apiKey by remember { mutableStateOf("") }
+    var showKey by remember { mutableStateOf(false) }
+    var hasKey by remember {
+        mutableStateOf(GeminiClient.hasApiKey(context))
+    }
+    var status by remember { mutableStateOf("") }
+    var testing by remember { mutableStateOf(false) }
 
     PageColumn {
         Text("SETTINGS", color = Purple,
@@ -450,10 +513,102 @@ fun SettingsScreen() {
         }
 
         HorizontalDivider(color = Color.DarkGray)
-        Text("AI Provider", color = Color.White)
-        Text("Not connected", color = Color(0xFFFFC46B))
-        Text("API configuration is not added yet.",
-            color = Color.LightGray)
+
+        Text("GEMINI AI PROVIDER", color = Purple,
+            style = MaterialTheme.typography.titleLarge)
+
+        Text(
+            if (hasKey) "API Key saved on this device"
+            else "API Key not configured",
+            color = if (hasKey) Cyan else Color(0xFFFFC46B)
+        )
+
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = {
+                apiKey = it
+                status = ""
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Gemini API Key") },
+            placeholder = { Text("আপনার API Key লিখুন") },
+            singleLine = true,
+            visualTransformation = if (showKey)
+                VisualTransformation.None
+            else PasswordVisualTransformation()
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TextButton(onClick = { showKey = !showKey }) {
+                Text(if (showKey) "Hide Key" else "Show Key")
+            }
+            Button(
+                enabled = apiKey.isNotBlank(),
+                onClick = {
+                    try {
+                        GeminiClient.saveApiKey(context, apiKey)
+                        apiKey = ""
+                        hasKey = true
+                        status = "API Key encrypted and saved."
+                    } catch (e: Exception) {
+                        status = e.message ?: "API Key save করা যায়নি।"
+                    }
+                }
+            ) {
+                Text("Save Key")
+            }
+        }
+
+        Button(
+            enabled = hasKey && !testing,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                testing = true
+                status = "Gemini connection পরীক্ষা হচ্ছে..."
+                scope.launch {
+                    try {
+                        val reply = GeminiClient.generateReply(
+                            context,
+                            "Reply only with: Gemini connected."
+                        )
+                        status = "Connection successful: $reply"
+                    } catch (e: Exception) {
+                        status = e.message ?: "Gemini connection failed."
+                    } finally {
+                        testing = false
+                    }
+                }
+            }
+        ) {
+            Text(if (testing) "Testing..." else "Test Gemini Connection")
+        }
+
+        OutlinedButton(
+            enabled = hasKey && !testing,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                GeminiClient.clearApiKey(context)
+                apiKey = ""
+                hasKey = false
+                status = "Saved API Key cleared."
+            }
+        ) {
+            Text("Clear Saved API Key")
+        }
+
+        if (status.isNotBlank()) {
+            Text(status, color = Cyan)
+        }
+
+        Text(
+            "API Key এই ডিভাইসে Android Keystore দিয়ে encrypt করে রাখা হয়। " +
+                "Key কাউকে পাঠাবেন না বা Chat-এ লিখবেন না।",
+            color = Color.LightGray,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 

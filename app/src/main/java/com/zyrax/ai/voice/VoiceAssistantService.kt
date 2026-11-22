@@ -15,17 +15,29 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
 import com.zyrax.ai.MainActivity
-import com.zyrax.ai.R
+import com.zyrax.ai.ai.GeminiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 class VoiceAssistantService : Service(), RecognitionListener {
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
+
     private val handler = Handler(Looper.getMainLooper())
+    private val serviceScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     private var stopping = false
+    private var busy = false
+    private var ttsReady = false
 
     companion object {
         const val CHANNEL_ID = "zyrax_voice_channel"
@@ -38,7 +50,32 @@ class VoiceAssistantService : Service(), RecognitionListener {
 
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale("bn", "BD")
+                val result = tts?.setLanguage(Locale("bn", "BD"))
+                ttsReady = result != TextToSpeech.ERROR &&
+                    result != TextToSpeech.LANG_MISSING_DATA
+
+                tts?.setOnUtteranceProgressListener(
+                    object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {}
+
+                        override fun onDone(utteranceId: String?) {
+                            handler.post {
+                                busy = false
+                                if (!stopping) {
+                                    scheduleRestart()
+                                }
+                            }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            handler.post {
+                                busy = false
+                                scheduleRestart()
+                            }
+                        }
+                    }
+                )
             }
         }
 
@@ -48,7 +85,11 @@ class VoiceAssistantService : Service(), RecognitionListener {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
@@ -80,46 +121,77 @@ class VoiceAssistantService : Service(), RecognitionListener {
 
     private fun buildNotification(): Notification {
         val openApp = PendingIntent.getActivity(
-            this, 0,
+            this,
+            0,
             Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val stopIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, VoiceAssistantService::class.java).apply {
+                action = ACTION_STOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                PendingIntent.FLAG_IMMUTABLE
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("ZYRAX AI is listening")
-            .setContentText("বলুন: ZYRAX অথবা JARVIS")
+            .setContentTitle("ZYRAX AI Voice")
+            .setContentText("ভয়েস অ্যাসিস্ট্যান্ট চালু আছে")
             .setOngoing(true)
             .setContentIntent(openApp)
+            .addAction(
+                android.R.drawable.ic_media_pause,
+                "Voice OFF",
+                stopIntent
+            )
             .build()
     }
 
     private fun startListening() {
-        if (stopping || recognizer == null) return
+        if (stopping || busy || recognizer == null) return
 
         handler.postDelayed({
-            if (stopping) return@postDelayed
+            if (stopping || busy) return@postDelayed
 
             try {
-                val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(
-                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                    )
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                }
+                val speechIntent =
+                    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(
+                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                        )
+                        putExtra(
+                            RecognizerIntent.EXTRA_LANGUAGE,
+                            "bn-BD"
+                        )
+                        putExtra(
+                            RecognizerIntent.EXTRA_PARTIAL_RESULTS,
+                            true
+                        )
+                        putExtra(
+                            RecognizerIntent.EXTRA_MAX_RESULTS,
+                            3
+                        )
+                    }
+
                 recognizer?.startListening(speechIntent)
             } catch (_: Exception) {
                 scheduleRestart()
             }
-        }, 350)
+        }, 500)
     }
 
     private fun scheduleRestart() {
-        if (!stopping) {
-            handler.postDelayed({ startListening() }, 900)
+        if (!stopping && !busy) {
+            handler.removeCallbacksAndMessages(null)
+            handler.postDelayed({
+                startListening()
+            }, 1000)
         }
     }
 
@@ -130,7 +202,7 @@ class VoiceAssistantService : Service(), RecognitionListener {
     override fun onEndOfSpeech() {}
 
     override fun onError(error: Int) {
-        scheduleRestart()
+        if (!busy) scheduleRestart()
     }
 
     override fun onResults(results: Bundle?) {
@@ -140,49 +212,129 @@ class VoiceAssistantService : Service(), RecognitionListener {
             ?.trim()
             .orEmpty()
 
-        if (spoken.isNotBlank()) processVoiceCommand(spoken)
-        scheduleRestart()
+        if (spoken.isBlank()) {
+            scheduleRestart()
+        } else {
+            processVoiceCommand(spoken)
+        }
     }
 
     override fun onPartialResults(partialResults: Bundle?) {}
     override fun onEvent(eventType: Int, params: Bundle?) {}
 
     private fun processVoiceCommand(spoken: String) {
+        if (busy || stopping) return
+
         val command = spoken.lowercase(Locale.ROOT)
 
-        when {
-            command.contains("jarvis") ||
-            command.contains("জারভিস") ||
-            command.contains("জার্ভিস") -> {
-                getSharedPreferences("zyrax_voice", MODE_PRIVATE)
-                    .edit().putString("active_agent", "JARVIS").apply()
-                speak("জি, আমি JARVIS। বলুন, কী করতে হবে?")
-            }
+        val isJarvis = listOf(
+            "jarvis", "জারভিস", "জার্ভিস"
+        ).any { command.contains(it) }
 
-            command.contains("zyrax") ||
-            command.contains("জাইরাক্স") ||
-            command.contains("জিরাক্স") -> {
-                getSharedPreferences("zyrax_voice", MODE_PRIVATE)
-                    .edit().putString("active_agent", "ZYRAX").apply()
-                speak("জি, আমি ZYRAX। বলুন, আমি শুনছি।")
-            }
+        val isZyrax = listOf(
+            "zyrax", "জাইরাক্স", "জিরাক্স", "জাইরেক্স"
+        ).any { command.contains(it) }
 
-            else -> {
-                val agent = getSharedPreferences("zyrax_voice", MODE_PRIVATE)
-                    .getString("active_agent", "ZYRAX") ?: "ZYRAX"
+        val prefs = getSharedPreferences("zyrax_voice", MODE_PRIVATE)
 
-                speak("$agent আপনার কথা শুনেছে। পূর্ণ AI উত্তর দেওয়ার জন্য AI সংযোগ প্রয়োজন।")
+        if (isJarvis) {
+            prefs.edit().putString("active_agent", "JARVIS").apply()
+        } else if (isZyrax) {
+            prefs.edit().putString("active_agent", "ZYRAX").apply()
+        }
+
+        val agent = prefs.getString("active_agent", "ZYRAX") ?: "ZYRAX"
+
+        val question = command
+            .replace(
+                Regex("(?i)\\b(jarvis|zyrax)\\b"),
+                ""
+            )
+            .replace("জারভিস", "")
+            .replace("জার্ভিস", "")
+            .replace("জাইরাক্স", "")
+            .replace("জিরাক্স", "")
+            .replace("জাইরেক্স", "")
+            .replace("তুমি আসো", "")
+            .replace("তুমি এসো", "")
+            .replace("come here", "")
+            .replace("are you there", "")
+            .trim()
+            .trim(',', '.', '!', '?', '।')
+
+        if (question.isBlank()) {
+            busy = true
+            speak(
+                if (agent == "JARVIS")
+                    "জি, আমি JARVIS। বলুন, কী করতে হবে?"
+                else
+                    "জি, আমি ZYRAX। বলুন, আমি শুনছি।"
+            )
+            return
+        }
+
+        busy = true
+
+        serviceScope.launch {
+            try {
+                val instruction = if (agent == "JARVIS") {
+                    "You are JARVIS, a professional and precise technical assistant. " +
+                        "Reply naturally in Bengali unless the user requests another language. " +
+                        "Be concise and helpful. User says: $question"
+                } else {
+                    "You are ZYRAX, a friendly and caring personal AI companion. " +
+                        "Reply naturally in Bengali unless the user requests another language. " +
+                        "Be warm, clear and helpful. User says: $question"
+                }
+
+                val answer = GeminiClient.generateReply(
+                    this@VoiceAssistantService,
+                    instruction
+                )
+
+                speak(answer)
+            } catch (e: Exception) {
+                val message = e.message
+                    ?: "Gemini সংযোগে সমস্যা হয়েছে।"
+
+                speak(
+                    if (message.contains("API Key", ignoreCase = true)) {
+                        "Gemini API Key সেটিংসে যোগ করুন।"
+                    } else {
+                        "দুঃখিত, উত্তর আনতে সমস্যা হয়েছে। $message"
+                    }
+                )
             }
         }
     }
 
     private fun speak(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "zyrax_reply")
+        if (stopping) return
+
+        if (tts == null || !ttsReady) {
+            busy = false
+            scheduleRestart()
+            return
+        }
+
+        val result = tts?.speak(
+            text,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "zyrax_reply_${System.currentTimeMillis()}"
+        )
+
+        if (result == TextToSpeech.ERROR) {
+            busy = false
+            scheduleRestart()
+        }
     }
 
     override fun onDestroy() {
         stopping = true
+        busy = false
         handler.removeCallbacksAndMessages(null)
+        serviceScope.cancel()
 
         try {
             recognizer?.cancel()
