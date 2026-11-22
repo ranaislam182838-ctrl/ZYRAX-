@@ -19,6 +19,7 @@ import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
 import com.zyrax.ai.MainActivity
 import com.zyrax.ai.ai.GeminiClient
+import com.zyrax.ai.agents.AgentStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -235,16 +236,13 @@ class VoiceAssistantService : Service(), RecognitionListener {
             "zyrax", "জাইরাক্স", "জিরাক্স", "জাইরেক্স"
         ).any { command.contains(it) }
 
-        val prefs = getSharedPreferences("zyrax_voice", MODE_PRIVATE)
-
         if (isJarvis) {
-            prefs.edit().putString("active_agent", "JARVIS").apply()
+            AgentStore.setActive(this, "jarvis")
         } else if (isZyrax) {
-            prefs.edit().putString("active_agent", "ZYRAX").apply()
+            AgentStore.setActive(this, "zyrax")
         }
 
-        val agent = prefs.getString("active_agent", "ZYRAX") ?: "ZYRAX"
-
+        val activeAgent = AgentStore.getActive(this)
         val question = command
             .replace(
                 Regex("(?i)\\b(jarvis|zyrax)\\b"),
@@ -264,12 +262,7 @@ class VoiceAssistantService : Service(), RecognitionListener {
 
         if (question.isBlank()) {
             busy = true
-            speak(
-                if (agent == "JARVIS")
-                    "জি, আমি JARVIS। বলুন, কী করতে হবে?"
-                else
-                    "জি, আমি ZYRAX। বলুন, আমি শুনছি।"
-            )
+            speak("জি, আমি ${activeAgent.name}। বলুন, কী করতে হবে?")
             return
         }
 
@@ -277,19 +270,10 @@ class VoiceAssistantService : Service(), RecognitionListener {
 
         serviceScope.launch {
             try {
-                val instruction = if (agent == "JARVIS") {
-                    "You are JARVIS, a professional and precise technical assistant. " +
-                        "Reply naturally in Bengali unless the user requests another language. " +
-                        "Be concise and helpful. User says: $question"
-                } else {
-                    "You are ZYRAX, a friendly and caring personal AI companion. " +
-                        "Reply naturally in Bengali unless the user requests another language. " +
-                        "Be warm, clear and helpful. User says: $question"
-                }
-
                 val answer = GeminiClient.generateReply(
                     this@VoiceAssistantService,
-                    instruction
+                    question,
+                    agent = activeAgent
                 )
 
                 speak(answer)

@@ -32,6 +32,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.zyrax.ai.agents.AgentProfile
+import com.zyrax.ai.agents.AgentStore
 import com.zyrax.ai.voice.VoiceAssistantService
 
 import com.zyrax.ai.ai.GeminiClient
@@ -392,11 +394,12 @@ fun ChatScreen() {
                                 val reply = GeminiClient.generateReply(
                                     context,
                                     prompt,
-                                    history.toList()
+                                    history.toList(),
+                                    AgentStore.getActive(context)
                                 )
                                 history.add("user" to prompt)
                                 history.add("model" to reply)
-                                messages.add("ZYRAX: $reply")
+                                messages.add("${AgentStore.getActive(context).name}: $reply")
                             } catch (e: Exception) {
                                 error = e.message ?: "Gemini সংযোগে সমস্যা হয়েছে।"
                                 messages.add("সমস্যা: $error")
@@ -415,41 +418,98 @@ fun ChatScreen() {
 
 @Composable
 fun AgentsScreen() {
-    var selected by remember { mutableStateOf("ZYRAX") }
+    val context = LocalContext.current
+    var agents by remember { mutableStateOf(AgentStore.load(context)) }
+    var selectedId by remember { mutableStateOf(AgentStore.getActive(context).id) }
+    var name by remember { mutableStateOf("") }
+    var personality by remember { mutableStateOf("") }
+    var language by remember { mutableStateOf("bn") }
+    var voiceId by remember { mutableStateOf("default") }
+    var status by remember { mutableStateOf("") }
 
     PageColumn {
         Text("AI AGENTS", color = Purple,
             style = MaterialTheme.typography.headlineMedium)
-        Text("Choose your assistant", color = Color.LightGray)
+        Text("Choose or create your assistant", color = Color.LightGray)
 
-        listOf(
-            "ZYRAX" to "Friendly, caring companion",
-            "JARVIS" to "Professional technical assistant"
-        ).forEach { (name, description) ->
+        agents.forEach { agent ->
             Card(
-                onClick = { selected = name },
+                onClick = { selectedId = agent.id; AgentStore.setActive(context, agent.id) },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (selected == name)
+                    containerColor = if (selectedId == agent.id)
                         Color(0xFF34234B) else Panel
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text(name, color = Color.White,
+                Column(Modifier.padding(16.dp)) {
+                    Text(agent.name, color = Color.White,
                         style = MaterialTheme.typography.titleLarge)
-                    Text(description, color = Color.LightGray)
-                    if (selected == name) {
+                    Text(agent.personality, color = Color.LightGray)
+                    Text("Language: ${agent.language} | Voice: ${agent.voiceId}",
+                        color = Color.LightGray)
+                    if (selectedId == agent.id) {
                         Text("SELECTED", color = Purple)
                     }
                 }
             }
         }
-        Text("Custom Agent creation is not connected yet.",
-            color = Color.LightGray)
+
+        Text("CREATE NEW AI AGENT", color = Purple,
+            style = MaterialTheme.typography.titleLarge)
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Agent Name") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = personality,
+            onValueChange = { personality = it },
+            label = { Text("Personality") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = language,
+            onValueChange = { language = it },
+            label = { Text("Language (bn / en / ar)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = voiceId,
+            onValueChange = { voiceId = it },
+            label = { Text("Voice ID") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Button(
+            onClick = {
+                val agent = AgentProfile(
+                    id = "custom_${System.currentTimeMillis()}",
+                    name = name.trim(),
+                    personality = personality.trim(),
+                    language = language.trim(),
+                    voiceId = voiceId.trim()
+                )
+                if (AgentStore.create(context, agent)) {
+                    agents = AgentStore.load(context)
+                    selectedId = agent.id
+                    AgentStore.setActive(context, agent.id)
+                    name = ""
+                    personality = ""
+                    status = "Agent saved successfully!"
+                } else {
+                    status = "Name and personality are required."
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("CREATE AND SAVE AGENT")
+        }
+
+        Text(status, color = Purple)
     }
 }
-
-@Composable
 fun ModulesScreen() {
     val modules = listOf(
         "Live Voice" to "Speech recognition and spoken replies",

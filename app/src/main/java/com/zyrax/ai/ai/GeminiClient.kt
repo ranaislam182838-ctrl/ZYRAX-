@@ -1,6 +1,7 @@
 package com.zyrax.ai.ai
 
 import android.content.Context
+import com.zyrax.ai.agents.AgentProfile
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -93,7 +94,8 @@ object GeminiClient {
     suspend fun generateReply(
         context: Context,
         prompt: String,
-        history: List<Pair<String, String>> = emptyList()
+        history: List<Pair<String, String>> = emptyList(),
+        agent: AgentProfile? = null
     ): String = withContext(Dispatchers.IO) {
         require(prompt.isNotBlank()) { "মেসেজ খালি।" }
         val apiKey = readApiKey(context)
@@ -117,6 +119,20 @@ object GeminiClient {
 
         val requestBody = JSONObject()
             .put("contents", contents)
+            .apply {
+                if (agent != null) {
+                    val languageName = when (agent.language.lowercase()) {
+                        "bn" -> "Bengali"
+                        "en" -> "English"
+                        "ar" -> "Arabic"
+                        else -> agent.language
+                    }
+                    val systemText = "You are ${agent.name}, a personal AI assistant. Personality: ${agent.personality}. " +
+                        (if (agent.systemPrompt.isNotBlank()) "Additional instructions: ${agent.systemPrompt}. " else "") +
+                        "Preferred response language: $languageName. Follow another language if explicitly requested. Be helpful, accurate, respectful, and clear."
+                    put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemText))))
+                }
+            }
             .put(
                 "generationConfig",
                 JSONObject()
