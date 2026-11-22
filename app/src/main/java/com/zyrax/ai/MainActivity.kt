@@ -30,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.zyrax.ai.agents.AgentProfile
@@ -71,6 +74,7 @@ class MainActivity : ComponentActivity() {
 fun ZyraxApp() {
     val context = LocalContext.current
 
+
     var page by remember { mutableStateOf("Home") }
     var voiceOn by remember {
         mutableStateOf(
@@ -78,6 +82,21 @@ fun ZyraxApp() {
                 .getBoolean("running", false)
         )
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                voiceOn = context.getSharedPreferences("zyrax_voice", 0)
+                    .getBoolean("running", false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
 
     val permissionLauncher =
         rememberLauncherForActivityResult(
@@ -183,6 +202,7 @@ fun HomeScreen(
     onOpenModules: () -> Unit
 ) {
     val context = LocalContext.current
+
     val activeAgent = AgentStore.getActive(context)
 
     val transition = rememberInfiniteTransition(label = "zyrax_core")
@@ -389,6 +409,7 @@ fun ActionCard(title: String, description: String, action: () -> Unit) {
 @Composable
 fun ChatScreen() {
     val context = LocalContext.current
+
     val scope = rememberCoroutineScope()
     val messages = remember { mutableStateListOf<String>() }
     val history = remember { mutableStateListOf<Pair<String, String>>() }
@@ -486,6 +507,7 @@ fun ChatScreen() {
 @Composable
 fun AgentsScreen() {
     val context = LocalContext.current
+
     var agents by remember { mutableStateOf(AgentStore.load(context)) }
     var selectedId by remember { mutableStateOf(AgentStore.getActive(context).id) }
     var name by remember { mutableStateOf("") }
@@ -615,6 +637,7 @@ fun ModulesScreen() {
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
+
     val scope = rememberCoroutineScope()
     var language by remember { mutableStateOf("বাংলা") }
     var apiKey by remember { mutableStateOf("") }
