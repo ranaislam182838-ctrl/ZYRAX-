@@ -2,8 +2,9 @@ name: Build ZYRAX AI debug APK
 
 on:
   push:
-    branches: [ main, master, zyrax-upgrade ]
+    branches: [ main, master, zyrax-upgrade, feature/unified-architecture ]
   workflow_dispatch:
+
 
 jobs:
   build:
