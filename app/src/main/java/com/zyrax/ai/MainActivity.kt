@@ -510,6 +510,7 @@ fun AgentsScreen() {
         Text(status, color = Purple)
     }
 }
+@Composable
 fun ModulesScreen() {
     val modules = listOf(
         "Live Voice" to "Speech recognition and spoken replies",
